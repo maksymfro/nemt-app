@@ -1,5 +1,9 @@
 package com.mobapps.nemt.ui.screens
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,6 +33,7 @@ import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,8 +44,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mobapps.nemt.R
+import com.mobapps.nemt.notifications.NemtNotificationType
+import com.mobapps.nemt.notifications.NemtNotifications
 
 private val GlassPageBackground = Color(0xFFF3F4F7)
 private val GlassPanel = Color(0xDFFFFFFF)
@@ -54,6 +63,7 @@ fun HelpSupportScreen(
     onBack: () -> Unit,
     contentPadding: PaddingValues
 ) {
+    val context = LocalContext.current
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = GlassPageBackground
@@ -85,6 +95,64 @@ fun HelpSupportScreen(
                 icon = Icons.Outlined.Email,
                 title = "Email support",
                 body = "support@nemt-care.com\nTypical response time: within 24 hours"
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            SupportContactActions(
+                onDial = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_DIAL).setData(
+                                Uri.parse(context.getString(R.string.support_phone_uri))
+                            )
+                        )
+                        NemtNotifications.notifyNow(
+                            context = context,
+                            type = NemtNotificationType.SUPPORT_CONTACT,
+                            title = "Support opened",
+                            body = "Calling support line."
+                        )
+                    }.onFailure {
+                        if (it is ActivityNotFoundException) {
+                            Toast.makeText(context, "No app can place calls on this device.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+                onSms = {
+                    val uri = Uri.parse(context.getString(R.string.support_sms_uri))
+                    val intent = Intent(Intent.ACTION_SENDTO, uri).apply {
+                        putExtra("sms_body", context.getString(R.string.support_sms_body))
+                    }
+                    runCatching {
+                        context.startActivity(intent)
+                        NemtNotifications.notifyNow(
+                            context = context,
+                            type = NemtNotificationType.SUPPORT_CONTACT,
+                            title = "Support opened",
+                            body = "SMS support composer opened."
+                        )
+                    }.onFailure {
+                        Toast.makeText(context, "Could not open SMS.", Toast.LENGTH_LONG).show()
+                    }
+                },
+                onEmail = {
+                    val email = context.getString(R.string.support_email)
+                    val intent = Intent(Intent.ACTION_SENDTO).setData(
+                        Uri.parse("mailto:${Uri.encode(email)}?subject=${Uri.encode(context.getString(R.string.support_email_subject))}")
+                    )
+                    runCatching {
+                        context.startActivity(intent)
+                        NemtNotifications.notifyNow(
+                            context = context,
+                            type = NemtNotificationType.SUPPORT_CONTACT,
+                            title = "Support opened",
+                            body = "Email support composer opened."
+                        )
+                    }.onFailure {
+                        Toast.makeText(context, "No email app found.", Toast.LENGTH_LONG).show()
+                    }
+                }
             )
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -347,5 +415,52 @@ private fun PolicySection(
             fontSize = 14.sp,
             lineHeight = 22.sp
         )
+    }
+}
+
+@Composable
+private fun SupportContactActions(
+    onDial: () -> Unit,
+    onSms: () -> Unit,
+    onEmail: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(GlassPanel)
+            .border(1.dp, GlassStroke, RoundedCornerShape(24.dp))
+            .padding(18.dp)
+    ) {
+        Text(
+            text = "Contact options",
+            color = GlassText,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            OutlinedButton(
+                onClick = onDial,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Call", fontSize = 13.sp)
+            }
+            OutlinedButton(
+                onClick = onSms,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("SMS", fontSize = 13.sp)
+            }
+            OutlinedButton(
+                onClick = onEmail,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Email", fontSize = 13.sp)
+            }
+        }
     }
 }

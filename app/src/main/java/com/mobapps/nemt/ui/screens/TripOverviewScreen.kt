@@ -1,7 +1,6 @@
 package com.mobapps.nemt.ui.screens
 
 import android.Manifest
-import android.widget.Toast
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -27,8 +26,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.AltRoute
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material.icons.outlined.Place
@@ -46,10 +48,12 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,6 +66,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -86,8 +91,13 @@ import com.google.maps.android.compose.rememberCameraPositionState
 import com.mobapps.nemt.BuildConfig
 import com.mobapps.nemt.R
 import com.mobapps.nemt.data.TripsRepository
+import com.mobapps.nemt.notifications.NemtNotificationType
+import com.mobapps.nemt.notifications.NemtNotifications
 import com.mobapps.nemt.ui.rememberRidePlannerViewModel
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.ln
@@ -106,6 +116,7 @@ fun TripOverviewScreen(
     val tripDirections by ridePlanner.tripDirections.collectAsState()
     val deviceLocation by ridePlanner.deviceLocation.collectAsState()
     val selectedVehicle by ridePlanner.selectedVehicle.collectAsState()
+    val scheduledAtMillis by ridePlanner.scheduledAtMillis.collectAsState()
 
     val context = LocalContext.current
     val hasMapsKey = BuildConfig.MAPS_API_KEY.isNotBlank()
@@ -151,6 +162,11 @@ fun TripOverviewScreen(
     val pickup = pickupStop?.latLng
     val destination = destinationStop?.latLng
     var showDetailsSheet by remember { mutableStateOf(true) }
+    var showTripConfirmedDialog by remember { mutableStateOf(false) }
+    var confirmedFrom by remember { mutableStateOf("") }
+    var confirmedTo by remember { mutableStateOf("") }
+    var confirmedDateTime by remember { mutableStateOf("") }
+    var confirmedVehicle by remember { mutableStateOf("") }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
     val cameraPositionState = rememberCameraPositionState {
@@ -186,7 +202,7 @@ fun TripOverviewScreen(
                     isMyLocationEnabled = locationGranted
                 ),
                 uiSettings = MapUiSettings(
-                    zoomControlsEnabled = true,
+                    zoomControlsEnabled = false,
                     compassEnabled = true,
                     myLocationButtonEnabled = false,
                     mapToolbarEnabled = false
@@ -208,7 +224,7 @@ fun TripOverviewScreen(
                         points = pts,
                         color = Color(0xB2151A2E),
                         width = 18f,
-                        geodesic = true,
+                        geodesic = false,
                         jointType = JointType.ROUND,
                         startCap = RoundCap(),
                         endCap = RoundCap()
@@ -217,7 +233,7 @@ fun TripOverviewScreen(
                         points = pts,
                         color = Color(0xFF2D8CFF),
                         width = 11f,
-                        geodesic = true,
+                        geodesic = false,
                         jointType = JointType.ROUND,
                         startCap = RoundCap(),
                         endCap = RoundCap()
@@ -226,7 +242,7 @@ fun TripOverviewScreen(
                         points = pts,
                         color = Color(0xE6FFFFFF),
                         width = 3.5f,
-                        geodesic = true,
+                        geodesic = false,
                         jointType = JointType.ROUND,
                         startCap = RoundCap(),
                         endCap = RoundCap(),
@@ -309,6 +325,54 @@ fun TripOverviewScreen(
             }
         }
 
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 74.dp, end = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FloatingActionButton(
+                onClick = {
+                    val nextZoom = (cameraPositionState.position.zoom + 1f).coerceAtMost(21f)
+                    scope.launch {
+                        runCatching {
+                            cameraPositionState.animate(
+                                CameraUpdateFactory.zoomTo(nextZoom),
+                                durationMs = 220
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier.size(46.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Add,
+                    contentDescription = "Zoom in"
+                )
+            }
+
+            FloatingActionButton(
+                onClick = {
+                    val nextZoom = (cameraPositionState.position.zoom - 1f).coerceAtLeast(3f)
+                    scope.launch {
+                        runCatching {
+                            cameraPositionState.animate(
+                                CameraUpdateFactory.zoomTo(nextZoom),
+                                durationMs = 220
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier.size(46.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Remove,
+                    contentDescription = "Zoom out"
+                )
+            }
+        }
+
         if (!showDetailsSheet) {
             FloatingActionButton(
                 onClick = { showDetailsSheet = true },
@@ -371,7 +435,14 @@ fun TripOverviewScreen(
 
                 TransportPreviewCard(
                     selectedVehicle = selectedVehicle,
-                    etaText = tripDirections?.durationText
+                    etaText = tripDirections?.durationText,
+                    tripDetailsText = buildString {
+                        pickupStop?.title?.takeIf { it.isNotBlank() }?.let { append(it) }
+                        destinationStop?.title?.takeIf { it.isNotBlank() }?.let {
+                            if (isNotEmpty()) append(" -> ")
+                            append(it)
+                        }
+                    }.ifBlank { "Trip details pending" }
                 )
 
                 tripDirections?.let { dir ->
@@ -457,12 +528,6 @@ fun TripOverviewScreen(
                     }
                 }
 
-                Text(
-                    text = context.getString(R.string.trip_nemt_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -486,19 +551,35 @@ fun TripOverviewScreen(
                         onClick = {
                             val fromLabel = pickupStop?.title?.takeIf { it.isNotBlank() } ?: "Pickup location"
                             val toLabel = destinationStop?.title?.takeIf { it.isNotBlank() } ?: "Destination"
+                            val dateTimeLabel = SimpleDateFormat(
+                                "EEE, MMM d, yyyy • h:mm a",
+                                Locale.getDefault()
+                            ).format(Date(scheduledAtMillis.takeIf { it > 0L } ?: System.currentTimeMillis()))
+                            val vehicleLabel = selectedVehicle ?: "Unit A12 · Wheelchair Van"
                             TripsRepository.addConfirmedUpcomingTrip(
                                 from = fromLabel,
                                 to = toLabel,
                                 patientName = "For: You",
-                                vehicle = selectedVehicle ?: "Unit A12 · Wheelchair Van"
+                                vehicle = vehicleLabel,
+                                dateTime = dateTimeLabel
                             )
-                            Toast.makeText(
-                                context,
-                                "Your order is in process",
-                                Toast.LENGTH_LONG
-                            ).show()
-                            ridePlanner.clearTripPlanningSession()
-                            onClose()
+                            NemtNotifications.notifyNow(
+                                context = context,
+                                type = NemtNotificationType.TRIP_CONFIRMED,
+                                title = "Trip confirmed",
+                                body = "Your ride to $toLabel is confirmed for $dateTimeLabel."
+                            )
+                            NemtNotifications.scheduleTripReminder(
+                                context = context,
+                                requestKey = "${fromLabel}_${toLabel}_${dateTimeLabel}".replace(" ", "_"),
+                                scheduledAtMillis = scheduledAtMillis.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                                destination = toLabel
+                            )
+                            confirmedFrom = fromLabel
+                            confirmedTo = toLabel
+                            confirmedDateTime = dateTimeLabel
+                            confirmedVehicle = vehicleLabel
+                            showTripConfirmedDialog = true
                         },
                         modifier = Modifier.weight(1f)
                     ) {
@@ -508,12 +589,118 @@ fun TripOverviewScreen(
             }
         }
     }
+
+    if (showTripConfirmedDialog) {
+        Dialog(onDismissRequest = { }) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                tonalElevation = 8.dp,
+                shadowElevation = 14.dp,
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                                    MaterialTheme.colorScheme.surface
+                                )
+                            )
+                        )
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "Trip Confirmed",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Your trip has been added to Upcoming.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        tonalElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ConfirmedTripDetailRow(label = "Date & time", value = confirmedDateTime)
+                            ConfirmedTripDetailRow(label = "Pickup", value = confirmedFrom)
+                            ConfirmedTripDetailRow(label = "Destination", value = confirmedTo)
+                            ConfirmedTripDetailRow(label = "Vehicle", value = confirmedVehicle)
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            showTripConfirmedDialog = false
+                            ridePlanner.clearTripPlanningSession()
+                            onClose()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Done")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConfirmedTripDetailRow(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
+    }
 }
 
 @Composable
 private fun TransportPreviewCard(
     selectedVehicle: String?,
-    etaText: String?
+    etaText: String?,
+    tripDetailsText: String
 ) {
     val vehicleName = selectedVehicle ?: "Selected vehicle"
     Card(
@@ -557,11 +744,18 @@ private fun TransportPreviewCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Text(
-                text = etaText ?: "ETA --",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = etaText ?: "ETA --",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = tripDetailsText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

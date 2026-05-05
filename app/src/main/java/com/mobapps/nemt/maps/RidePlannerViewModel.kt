@@ -16,7 +16,9 @@ import com.google.android.libraries.places.api.model.Place
 import com.google.android.libraries.places.api.net.FetchPlaceRequest
 import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest
 import com.google.android.libraries.places.api.net.PlacesClient
+import com.google.firebase.auth.FirebaseAuth
 import com.mobapps.nemt.BuildConfig
+import com.mobapps.nemt.data.TripsFirestoreRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -71,16 +73,19 @@ class RidePlannerViewModel(application: Application) : AndroidViewModel(applicat
     private val _userMessage = MutableStateFlow<String?>(null)
     val userMessage: StateFlow<String?> = _userMessage.asStateFlow()
 
-    /** Driving directions polyline (or straight A→B until loaded). Null if pickup/destination incomplete. */
+    /** Route polyline between pickup and destination. Null if either stop is missing. */
     private val _routePoints = MutableStateFlow<List<LatLng>?>(null)
     val routePoints: StateFlow<List<LatLng>?> = _routePoints.asStateFlow()
 
-    /** ETA, distance, and hints from Directions API (or fallback estimates). */
+    /** ETA and distance estimate for the current planned trip. */
     private val _tripDirections = MutableStateFlow<TripDirections?>(null)
     val tripDirections: StateFlow<TripDirections?> = _tripDirections.asStateFlow()
 
     private val _selectedVehicle = MutableStateFlow<String?>(null)
     val selectedVehicle: StateFlow<String?> = _selectedVehicle.asStateFlow()
+
+    private val _scheduledAtMillis = MutableStateFlow(0L)
+    val scheduledAtMillis: StateFlow<Long> = _scheduledAtMillis.asStateFlow()
 
     private var pickupSearchJob: Job? = null
     private var destSearchJob: Job? = null
@@ -181,21 +186,16 @@ class RidePlannerViewModel(application: Application) : AndroidViewModel(applicat
         _selectedVehicle.value = vehicle
     }
 
+    fun setScheduledAtMillis(millis: Long) {
+        _scheduledAtMillis.value = millis
+    }
+
     private suspend fun loadRouteFromCurrentStops() {
         val p = _pickupStop.value?.latLng ?: return
         val d = _destinationStop.value?.latLng ?: return
-        val key = BuildConfig.MAPS_API_KEY
-        val fallback = DirectionsClient.straightLineFallback(p, d)
-        _routePoints.value = fallback.polylinePoints
-        _tripDirections.value = fallback
-        if (key.isBlank()) return
-        val driving = withContext(Dispatchers.IO) {
-            DirectionsClient.fetchDrivingDirections(p, d, key)
-        }
-        if (driving != null) {
-            _routePoints.value = driving.polylinePoints
-            _tripDirections.value = driving
-        }
+        val estimate = DirectionsClient.straightLineFallback(p, d)
+        _routePoints.value = estimate.polylinePoints
+        _tripDirections.value = estimate
     }
 
     private fun refreshRoutePolyline() {
@@ -224,6 +224,7 @@ class RidePlannerViewModel(application: Application) : AndroidViewModel(applicat
         _routePoints.value = null
         _tripDirections.value = null
         _selectedVehicle.value = null
+        _scheduledAtMillis.value = 0L
         pickupSessionToken = AutocompleteSessionToken.newInstance()
         destSessionToken = AutocompleteSessionToken.newInstance()
     }
@@ -233,14 +234,27 @@ class RidePlannerViewModel(application: Application) : AndroidViewModel(applicat
      * @return null on success, or a short error message.
      */
     suspend fun tryFinalizeBooking(): String? {
-        var p = _pickupStop.value
-        var d = _destinationStop.value
-        if (p != null && d != null) return null
+        if (FirebaseAuth.getInstance().currentUser == null) {
+            return "Please sign in to book a ride."
+        }
+        if (_selectedVehicle.value.isNullOrBlank()) {
+            return "Select a vehicle type."
+        }
+        val sched = _scheduledAtMillis.value
+        if (sched == 0L) {
+            return "Choose a date and time for your ride."
+        }
+        val now = System.currentTimeMillis()
+        if (sched < now - 60_000L) {
+            return "Pick a time in the future (at least 1 minute from now)."
+        }
         val pq = _pickupQuery.value.trim()
         val dq = _destinationQuery.value.trim()
         if (pq.isEmpty() || dq.isEmpty()) {
             return "Enter pickup and destination."
         }
+        var p = _pickupStop.value
+        var d = _destinationStop.value
         if (p == null) {
             p = withContext(Dispatchers.IO) { geocodeQueryToStop(pq) }
                 ?: return "Could not find pickup. Add detail or pick from suggestions."
@@ -250,6 +264,17 @@ class RidePlannerViewModel(application: Application) : AndroidViewModel(applicat
             d = withContext(Dispatchers.IO) { geocodeQueryToStop(dq) }
                 ?: return "Could not find destination. Add detail or pick from suggestions."
             _destinationStop.value = d
+        }
+        if (TripsFirestoreRepository.areStopsEffectivelyDuplicate(
+                pickupTitle = p.title,
+                pickupSubtitle = p.subtitle,
+                pickupLatLng = p.latLng,
+                destTitle = d.title,
+                destSubtitle = d.subtitle,
+                destLatLng = d.latLng
+            )
+        ) {
+            return "Pickup and destination must be different places."
         }
         loadRouteFromCurrentStops()
         return null
@@ -320,7 +345,6 @@ class RidePlannerViewModel(application: Application) : AndroidViewModel(applicat
                 onResult(response.autocompletePredictions)
             }
             .addOnFailureListener {
-                _userMessage.update { "Address search failed. Check network and API key." }
                 onResult(emptyList())
             }
     }

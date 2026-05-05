@@ -50,6 +50,10 @@ fun RideCard(
 ) {
     val statusColor = when (status) {
         "In progress" -> BrandBlue
+        "Requested" -> TextSecondary
+        "Accepted" -> BrandBlue
+        "Assigned" -> BrandBlue
+        "Arrived" -> BrandBlue
         "Scheduled" -> TextSecondary
         "Completed" -> SuccessGreen
         "Cancelled" -> BrandRed

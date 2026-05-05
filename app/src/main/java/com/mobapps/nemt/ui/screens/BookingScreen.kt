@@ -205,6 +205,10 @@ fun BookingScreen(
         ridePlanner.clearMessage()
     }
 
+    LaunchedEffect(scheduledAtMillis) {
+        ridePlanner.setScheduledAtMillis(scheduledAtMillis)
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -501,11 +505,6 @@ fun BookingScreen(
                             if (err != null) {
                                 snackbarHostState.showSnackbar(err)
                             } else {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.booking_confirmed_toast),
-                                    Toast.LENGTH_LONG
-                                ).show()
                                 onTripConfirmed()
                             }
                         }

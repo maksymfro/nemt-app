@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">NEMT</string>
-    <string name="booking_confirmed_toast">Ride request recorded. A coordinator will contact you.</string>
+    <string name="booking_confirmed_toast">Ride request recorded.</string>
     <string name="cd_back">Back</string>
     <string name="trip_title">Your trip</string>
     <string name="trip_subtitle">Route preview &amp; medical transport</string>
@@ -10,11 +10,15 @@
     <string name="trip_pickup_label">Pickup</string>
     <string name="trip_destination_label">Destination</string>
     <string name="trip_you_are_here">Your current location is shown on the map when available.</string>
-    <string name="trip_nemt_note">NEMT: a coordinator will match a vehicle to this trip. This is not live driver tracking.</string>
     <string name="trip_done">Done</string>
     <string name="trip_confirm">Confirm trip</string>
     <string name="trip_cancel">Cancel</string>
     <string name="trip_map_unavailable">Add a maps key and set both addresses to see the route.</string>
     <string name="trip_marker_pickup">Pickup</string>
     <string name="trip_marker_destination">Destination</string>
+    <string name="support_phone_uri">tel:+34900000000</string>
+    <string name="support_sms_uri">smsto:+34900000000</string>
+    <string name="support_sms_body">Hello, I need assistance with the NEMT app.</string>
+    <string name="support_email">support@nemt-care.com</string>
+    <string name="support_email_subject">NEMT app support</string>
 </resources>

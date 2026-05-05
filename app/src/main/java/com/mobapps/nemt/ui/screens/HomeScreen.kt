@@ -80,6 +80,7 @@ fun HomeScreen(
     onGoToTrips: () -> Unit,
     onGoToProfile: () -> Unit,
     onGoToBooking: () -> Unit,
+    onNeedAssistanceClick: () -> Unit,
     contentPadding: PaddingValues
 ) {
     val ridePlanner = rememberRidePlannerViewModel()
@@ -132,7 +133,8 @@ fun HomeScreen(
             item {
                 TopMapSection(
                     hasMapsKey = hasMapsKey,
-                    deviceLocation = deviceLocation
+                    deviceLocation = deviceLocation,
+                    onNeedAssistanceClick = onNeedAssistanceClick
                 )
             }
 
@@ -170,7 +172,11 @@ fun HomeScreen(
 }
 
 @Composable
-private fun TopMapSection(hasMapsKey: Boolean, deviceLocation: LatLng?) {
+private fun TopMapSection(
+    hasMapsKey: Boolean,
+    deviceLocation: LatLng?,
+    onNeedAssistanceClick: () -> Unit
+) {
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(
             deviceLocation ?: DefaultMapCenter,
@@ -261,7 +267,7 @@ private fun TopMapSection(hasMapsKey: Boolean, deviceLocation: LatLng?) {
                 modifier = Modifier
                     .clip(RoundedCornerShape(18.dp))
                     .background(Color(0x33000000))
-                    .clickable { }
+                    .clickable { onNeedAssistanceClick() }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {

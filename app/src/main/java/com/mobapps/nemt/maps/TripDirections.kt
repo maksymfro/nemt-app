@@ -9,7 +9,7 @@ data class TripTurn(
 )
 
 /**
- * Driving route details from Google Directions (or a straight-line fallback).
+ * Route details shown in the trip overview.
  */
 data class TripDirections(
     val polylinePoints: List<LatLng>,
@@ -17,8 +17,8 @@ data class TripDirections(
     val durationText: String,
     val distanceMeters: Int,
     val distanceText: String,
-    /** Next turn / start of route in plain text when available from Directions. */
+    /** Optional next step hint text. */
     val nextStepHint: String?,
-    /** A few upcoming maneuver points (turns/roundabouts/etc.) */
+    /** Optional maneuver points to display on the map. */
     val turns: List<TripTurn>
 )

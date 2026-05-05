@@ -26,18 +26,28 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.firebase.auth.FirebaseAuth
+import com.mobapps.nemt.data.TripLifecycleStatus
+import com.mobapps.nemt.data.TripRecord
 import com.mobapps.nemt.data.TripStatus
-import com.mobapps.nemt.data.TripsRepository
+import com.mobapps.nemt.data.TripsFirestoreRepository
+import com.mobapps.nemt.data.toRideCardStatusLabel
+import com.mobapps.nemt.data.toUiTab
+import com.mobapps.nemt.notifications.NemtNotificationType
+import com.mobapps.nemt.notifications.NemtNotifications
 import com.mobapps.nemt.ui.components.RideCard
+import kotlinx.coroutines.awaitCancellation
 
 private val BackgroundColor = Color(0xFFF3F4F7)
 private val CardColor = Color(0xFFFFFFFF)
@@ -52,16 +62,33 @@ fun TripsScreen(
     onBack: () -> Unit,
     contentPadding: PaddingValues
 ) {
-    LaunchedEffect(Unit) {
-        TripsRepository.ensureSeedData()
+    val auth = remember { FirebaseAuth.getInstance() }
+    val riderUid = auth.currentUser?.uid
+    val context = LocalContext.current
+    val firestoreTrips by TripsFirestoreRepository.trips.collectAsState()
+
+    LaunchedEffect(riderUid) {
+        if (riderUid == null) {
+            TripsFirestoreRepository.stopListening()
+            return@LaunchedEffect
+        }
+        TripsFirestoreRepository.startListening(riderUid)
+        try {
+            awaitCancellation()
+        } finally {
+            TripsFirestoreRepository.stopListening()
+        }
     }
+
     var selectedTab by remember { mutableStateOf(TripStatus.UPCOMING) }
-    var tripToManage by remember { mutableStateOf<com.mobapps.nemt.data.TripItem?>(null) }
+    var tripToManage by remember { mutableStateOf<TripRecord?>(null) }
     var editDateTime by remember { mutableStateOf("") }
     var editFrom by remember { mutableStateOf("") }
     var editTo by remember { mutableStateOf("") }
-    val allTrips = TripsRepository.trips
-    val visibleTrips = allTrips.filter { it.status == selectedTab }
+
+    val visibleTrips = remember(firestoreTrips, selectedTab) {
+        firestoreTrips.filter { it.lifecycleStatus.toUiTab() == selectedTab }
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -81,25 +108,43 @@ fun TripsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            RidesList(
-                selected = selectedTab,
-                trips = visibleTrips,
-                onCancelTrip = { tripId ->
-                    TripsRepository.cancelTrip(tripId)
-                    selectedTab = TripStatus.CANCELLED
-                },
-                onManageTrip = { trip ->
-                    tripToManage = trip
-                    editDateTime = trip.dateTime
-                    editFrom = trip.from
-                    editTo = trip.to
-                },
-                modifier = Modifier.weight(1f)
-            )
+            if (riderUid == null) {
+                Text(
+                    text = "Sign in to view and manage your trips.",
+                    fontSize = 14.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+            } else {
+                RidesList(
+                    selected = selectedTab,
+                    trips = visibleTrips,
+                    onCancelTrip = { tripId ->
+                        TripsFirestoreRepository.cancelTrip(tripId) { result ->
+                            result.onSuccess {
+                                selectedTab = TripStatus.CANCELLED
+                                NemtNotifications.notifyNow(
+                                    context = context,
+                                    type = NemtNotificationType.TRIP_CANCELLED,
+                                    title = "Trip cancelled",
+                                    body = "Your selected ride has been cancelled."
+                                )
+                            }
+                        }
+                    },
+                    onManageTrip = { trip ->
+                        tripToManage = trip
+                        editDateTime = trip.dateTimeDisplay
+                        editFrom = trip.from
+                        editTo = trip.to
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 
-    if (tripToManage != null) {
+    if (tripToManage != null && riderUid != null) {
         AlertDialog(
             onDismissRequest = { tripToManage = null },
             title = { Text("Manage trip") },
@@ -130,12 +175,21 @@ fun TripsScreen(
                     onClick = {
                         val trip = tripToManage ?: return@TextButton
                         if (editDateTime.isNotBlank() && editFrom.isNotBlank() && editTo.isNotBlank()) {
-                            TripsRepository.updateUpcomingTrip(
-                                id = trip.id,
-                                newDateTime = editDateTime.trim(),
+                            TripsFirestoreRepository.updateTripFields(
+                                tripId = trip.id,
+                                newDateTimeDisplay = editDateTime.trim(),
                                 newFrom = editFrom.trim(),
                                 newTo = editTo.trim()
-                            )
+                            ) { result ->
+                                result.onSuccess {
+                                    NemtNotifications.notifyNow(
+                                        context = context,
+                                        type = NemtNotificationType.TRIP_UPDATED,
+                                        title = "Trip updated",
+                                        body = "Your ride details were updated successfully."
+                                    )
+                                }
+                            }
                         }
                         tripToManage = null
                     }
@@ -214,9 +268,9 @@ private fun FilterChip(
 @Composable
 private fun RidesList(
     selected: TripStatus,
-    trips: List<com.mobapps.nemt.data.TripItem>,
+    trips: List<TripRecord>,
     onCancelTrip: (String) -> Unit,
-    onManageTrip: (com.mobapps.nemt.data.TripItem) -> Unit,
+    onManageTrip: (TripRecord) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -227,9 +281,9 @@ private fun RidesList(
         verticalArrangement = Arrangement.Top
     ) {
         val title = when (selected) {
-            TripStatus.UPCOMING -> "Upcoming trips (Spain)"
-            TripStatus.COMPLETED -> "Completed trips (Spain)"
-            TripStatus.CANCELLED -> "Cancelled trips (Spain)"
+            TripStatus.UPCOMING -> "Upcoming trips"
+            TripStatus.COMPLETED -> "Completed trips"
+            TripStatus.CANCELLED -> "Cancelled trips"
         }
         SectionHeader(title = title)
         Spacer(modifier = Modifier.height(8.dp))
@@ -245,26 +299,25 @@ private fun RidesList(
         }
 
         trips.forEach { trip ->
-            val statusText = when (trip.status) {
-                TripStatus.UPCOMING -> "Scheduled"
-                TripStatus.COMPLETED -> "Completed"
-                TripStatus.CANCELLED -> "Cancelled"
-            }
+            val upcoming = trip.lifecycleStatus.toUiTab() == TripStatus.UPCOMING
+            val canMutate = upcoming &&
+                trip.lifecycleStatus != TripLifecycleStatus.CANCELLED &&
+                trip.lifecycleStatus != TripLifecycleStatus.COMPLETED
             RideCard(
-                status = statusText,
-                dateTime = trip.dateTime,
+                status = trip.lifecycleStatus.toRideCardStatusLabel(),
+                dateTime = trip.dateTimeDisplay,
                 from = trip.from,
                 to = trip.to,
                 patientName = trip.patientName,
                 vehicle = trip.vehicle,
-                actionLabel = if (trip.status == TripStatus.UPCOMING) "Cancel trip" else null,
-                onActionClick = if (trip.status == TripStatus.UPCOMING) {
+                actionLabel = if (canMutate) "Cancel trip" else null,
+                onActionClick = if (canMutate) {
                     { onCancelTrip(trip.id) }
                 } else {
                     null
                 },
-                secondaryActionLabel = if (trip.status == TripStatus.UPCOMING) "Manage" else null,
-                onSecondaryActionClick = if (trip.status == TripStatus.UPCOMING) {
+                secondaryActionLabel = if (canMutate) "Manage" else null,
+                onSecondaryActionClick = if (canMutate) {
                     { onManageTrip(trip) }
                 } else {
                     null

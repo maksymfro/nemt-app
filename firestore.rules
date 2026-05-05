@@ -1,9 +1,20 @@
-rules_version='2'
-
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Rider profile document: users/{uid}
     match /users/{userId} {
-      allow create, read, update: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Trips: riders can only access their own documents
+    match /trips/{tripId} {
+      allow read: if request.auth != null
+        && resource.data.riderUid == request.auth.uid;
+      allow create: if request.auth != null
+        && request.resource.data.riderUid == request.auth.uid;
+      allow update, delete: if request.auth != null
+        && resource.data.riderUid == request.auth.uid;
     }
   }
 }
